@@ -1,0 +1,9 @@
+{
+  "annee_revenus": 2018,
+  "exercice_imposition": 2019,
+  "documents": {
+    "P1_BXL": "raw/P1_BXL.txt",
+    "P1_RF": "raw/P1_RF.txt",
+    "P1_RW": "raw/P1_RW.txt"
+  }
+}

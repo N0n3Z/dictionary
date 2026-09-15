@@ -84,14 +84,11 @@ def load_pages(path):
     except zipfile.BadZipFile:
         if shutil.which('pdftotext') is None:
             raise RuntimeError(f"{path}: vrai PDF mais pdftotext introuvable (apt/brew install poppler-utils)")
-        info = subprocess.run(['pdfinfo', path], capture_output=True, text=True, check=True).stdout
-        npages = int(next(l.split(':')[1].strip() for l in info.splitlines() if l.startswith('Pages')))
-        pages = []
-        for p in range(1, npages + 1):
-            r = subprocess.run(['pdftotext', '-layout', '-f', str(p), '-l', str(p), path, '-'],
-                                capture_output=True, text=True)
-            pages.append((p, r.stdout))
-        return pages
+        r = subprocess.run(['pdftotext', '-layout', path, '-'], capture_output=True, text=True, check=True)
+        chunks = r.stdout.split('\f')
+        if chunks and chunks[-1] == '':
+            chunks = chunks[:-1]
+        return [(p, txt) for p, txt in enumerate(chunks, start=1)]
 
 def parse_document(path):
     out = {}

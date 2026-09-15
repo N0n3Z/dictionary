@@ -1,0 +1,10 @@
+{
+  "annee_revenus": 2021,
+  "exercice_imposition": 2022,
+  "documents": {
+    "P1_BXL": "raw/P1_BXL.txt",
+    "P1_RF": "raw/P1_RF.txt",
+    "P1_RW": "raw/P1_RW.txt",
+    "P2": "raw/P2.txt"
+  }
+}
