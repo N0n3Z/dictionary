@@ -1,0 +1,10 @@
+# fichiers sources bruts et intermédiaires volumineux (ne pas versionner)
+data/*/raw/*
+!data/*/raw/.gitkeep
+data/*/*.xlsx
+data/*/pdf_struct.json
+data/*/records.json
+*.xlsx
+!data/**/manifest.json
+__pycache__/
+*.pyc
