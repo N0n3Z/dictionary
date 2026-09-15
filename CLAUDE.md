@@ -77,13 +77,28 @@ aval), avec :
 92=Pays-Bas, 93=Allemagne, 94=Luxembourg (revenus étrangers exonérés, réserve de
 progression) ; 95=CSSS exonéré ; 96=épargne française ; 97=autres pays exonérés IPP.
 
-## Dérive sémantique multi-année (à instrumenter, pas encore fait)
+## Dérive sémantique multi-année (instrumentée — `scripts/05_build_historique.py` + `06_write_historique_excel.py`)
 Une variable peut changer de sens au fil du temps sous le même code. Signal empirique
-observé par l'utilisateur (non certain) : une **rupture de disponibilité** d'un code
-pendant ≥1 an, suivie d'une réapparition, indique souvent un changement de sémantique.
-Les colonnes `Date_debut_disponibilite` et `Rupture_semantique` sont des placeholders
-à calculer une fois plusieurs années assemblées (comparer libellé + hiérarchie d'une
-occurrence à l'autre, pas seulement la continuité du code).
+observé par l'utilisateur : une **rupture de disponibilité** d'un code pendant ≥1 an,
+suivie d'une réapparition, indique souvent un changement de sémantique. Confirmé sur
+2017-2023 : sur 6982 codes multi-années, 76 ont un trou de disponibilité, et les 76
+correspondent à la relecture à un changement de libellé substantiel (similarité
+difflib max = 0.559 après normalisation — voir seuil `SEUIL_SUSPECT` dans le script).
+- `05_build_historique.py` : lit tous les `records.json`, regroupe par `Code_IPCAL`
+  (vérifié : pas de renumérotation d'une année à l'autre dans ce jeu de données —
+  `Code_IPCAL_precedent == Code_IPCAL` dans 100% des cas non-nouveaux — donc le code
+  sert d'identifiant stable de variable ; à revoir si une future année renumérote),
+  détecte les runs d'années manquantes dans le span [première, dernière année connue],
+  et calcule une similarité libellé+hiérarchie avant/après chaque coupure.
+  `python3 05_build_historique.py data/*/records.json -o data/historique.json`
+- `06_write_historique_excel.py` : classeur 3 feuilles — `Historique` (une ligne par
+  code, un libellé par année en colonnes, trous et ruptures suspectes surlignés),
+  `Alertes_rupture` (une ligne par épisode de coupure, triée par similarité croissante
+  = cas les plus suspects en premier), `Legende` (méthode et limites).
+  `python3 06_write_historique_excel.py data/historique.json -o IPCAL_historique_variables.xlsx`
+- Limite connue : ne détecte que la dérive accompagnée d'une coupure de disponibilité
+  (conforme au signal empirique documenté) ; un changement de sens sans coupure
+  (code présent en continu mais qui change de signification) n'est pas couvert.
 
 ## Gotchas techniques
 - Caractères de contrôle OCR corrompent l'écriture openpyxl : sanitizer
@@ -106,6 +121,11 @@ occurrence à l'autre, pas seulement la continuité du code).
    `python3 03_build_dictionary.py --excel data/<année>/IPCAL_<année>.xlsx --sheet IPCAL_Codes --struct data/<année>/pdf_struct.json --annee-revenus <année> --exercice <année+1> -o data/<année>/records.json`
 4. **`04_write_excel.py`** — écrit le classeur final (une année ou plusieurs via glob).
    `python3 04_write_excel.py data/*/records.json -o IPCAL_data_dictionary_2014_2024.xlsx`
+5. **`05_build_historique.py`** — (multi-année uniquement) vue historique par
+   variable + détection de dérive sémantique. `python3 05_build_historique.py
+   data/*/records.json -o data/historique.json`
+6. **`06_write_historique_excel.py`** — classeur Historique/Alertes_rupture/Legende.
+   `python3 06_write_historique_excel.py data/historique.json -o IPCAL_historique_variables.xlsx`
 
 ## Convention de dossiers pour les nouvelles années
 ```

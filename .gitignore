@@ -1,5 +1,6 @@
 # fichiers intermédiaires régénérables par le pipeline (pas les sources)
 data/*/pdf_struct.json
 data/*/records.json
+data/historique.json
 __pycache__/
 *.pyc
