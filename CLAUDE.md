@@ -2,10 +2,12 @@
 
 ## Objectif du projet
 Produire un data dictionary structuré, multi-année, pour les données micro d'IPCAL
-(déclaration à l'impôt des personnes physiques belge). Une année de test (revenus 2024,
-exercice 2025) a été validée manuellement ; l'objectif maintenant est d'étendre à la
-série historique complète (2014 → aujourd'hui, avec un cas particulier avant 2014 où
-il n'y avait qu'un seul PDF, pas un par région).
+(déclaration à l'impôt des personnes physiques belge). Revenus 2017-2023 traités et
+validés (7 années, voir `data/`) ; l'objectif maintenant est d'étendre à la série
+historique complète (2014 → aujourd'hui, avec un cas particulier avant 2014 où il n'y
+avait qu'un seul PDF, pas un par région) au fur et à mesure que les fichiers bruts
+manquants (2014-2016, et l'année test revenus 2024/exercice 2025 déjà validée
+manuellement mais pas encore réintégrée ici) sont déposés dans `data/<année>/raw/`.
 
 ## Sources (deux par année)
 1. **PDF préparatoire** : un par région (BXL/RF/RW) × partie (1=classique, 2=indépendants),
@@ -131,38 +133,60 @@ difflib max = 0.559 après normalisation — voir seuil `SEUIL_SUSPECT` dans le 
 ```
 data/
   2024/
-    raw/                              <- PDF (ou zip "pdf") + Excel bruts, tels que reçus
-      docpreparatoire_bxl.pdf
-      docpreparatoire_rf.pdf
-      ...
-      IPCAL_2024.xlsx
-    manifest.json                     <- mapping rôle -> fichier .txt/.pdf, voir ex. ci-dessous
+    raw/                              <- PDF + Excel bruts, tels que reçus, renommés :
+      IPCAL_2024.xlsx                    Excel maître
+      P1_BXL.pdf / P1_RF.pdf / P1_RW.pdf Partie 1, résidents, par région
+      P2.pdf                              Partie 2, indépendants
+      INR_P1.pdf / INR_P2.pdf            Non-résidents, parties 1/2
+      P1.pdf                              Avant 2014 : PDF unique (pas de découpage régional)
+    manifest.json                     <- mapping clé -> fichier .txt/.pdf, voir ex. ci-dessous
     pdf_struct.json                   <- sortie script 02
     records.json                      <- sortie script 03
   2023/
     ...
 ```
-Exemple de `manifest.json` :
+Règles de nommage dans `raw/` : toujours `<clé>.pdf` où `<clé>` est exactement la clé
+utilisée dans `manifest.json` (pas de préfixe parasite type `111-`, une seule extension
+`.pdf`) ; Excel maître toujours `IPCAL_<année_revenus>.xlsx` (jamais l'exercice, pour
+éviter l'ambiguïté du style "2023-2024" — l'exercice se déduit, `année_revenus + 1`).
+
+Exemple de `manifest.json` (bloc `excel_columns` optionnel — voir section suivante) :
 ```json
 {
   "annee_revenus": 2024,
   "exercice_imposition": 2025,
   "documents": {
-    "P1_BXL": "raw/docpreparatoire_bxl.txt",
-    "P1_RF": "raw/docpreparatoire_rf.txt",
-    "P1_RW": "raw/docpreparatoire_rw.txt",
-    "P2": "raw/docpreparatoire_p2.txt",
-    "INR_P1": "raw/inr_p1.txt",
-    "INR_P2": "raw/inr_p2.txt"
+    "P1_BXL": "raw/P1_BXL.txt",
+    "P1_RF": "raw/P1_RF.txt",
+    "P1_RW": "raw/P1_RW.txt",
+    "P2": "raw/P2.txt",
+    "INR_P1": "raw/INR_P1.txt",
+    "INR_P2": "raw/INR_P2.txt"
   }
 }
 ```
 Pour les années avant 2014 (un seul PDF, pas de découpage régional), adapter le
-manifest avec une seule clé (ex. `"P1": "raw/doc.txt"`) — `03_build_dictionary.py`
-reste compatible tant que `resident_keys`/`regions_of` sont ajustés en conséquence
-(voir les paramètres de la fonction `build()`, actuellement câblés sur la convention
-`P1_BXL/P1_RF/P1_RW/P2/INR_P1/INR_P2` — à généraliser si le nombre/nom de documents
-varie davantage d'une année à l'autre).
+manifest avec une seule clé (ex. `"P1": "raw/P1.txt"`) — `03_build_dictionary.py`
+lit désormais la liste et l'ordre des clés depuis `manifest.json` lui-même (au lieu
+d'une liste câblée en dur), donc aucun changement de code n'est nécessaire pour ce cas.
+
+## Paramétrage pour un run local (`config.json` + `manifest.json`)
+Deux niveaux de configuration, tous deux optionnels (défauts = disposition ci-dessus) :
+- **`config.json`** (racine du dépôt) : emplacement et disposition des dossiers/fichiers
+  (gabarits avec `{annee}`/`{data_dir}`, résolus par `scripts/_layout.py`). À modifier
+  si la disposition locale diffère (pas de sous-dossier `raw/`, données hors du dépôt,
+  autre nom de fichier pour l'Excel maître, etc.) — voir le commentaire en tête du
+  module pour le détail. Les scripts 01-03 acceptent `--annee <année>` (+ `--config
+  <chemin>` en option) pour résoudre leurs chemins via cette config ; toute option de
+  chemin explicite (`--excel`, `--struct`, `-o`, le manifest positionnel...) garde
+  priorité sur ce que `--annee` déduirait.
+- **`manifest.json` par année**, bloc `excel_columns` optionnel : feuille, nombre de
+  lignes d'en-tête, indices de colonnes (voir docstring de `03_build_dictionary.py`
+  pour le schéma complet), et labels de source PDF. À utiliser quand une année s'écarte
+  des hypothèses par défaut (ex. 2021 : feuille nommée `Feuil1` au lieu de
+  `IPCAL_Codes` — voir `data/2021/manifest.json`) plutôt que de passer des `--sheet`/
+  `--header-rows` en ligne de commande, pour que l'ajustement reste versionné et
+  reproductible sans avoir à s'en souvenir d'une session à l'autre.
 
 ## Points ouverts / à vérifier avec l'utilisateur avant de généraliser massivement
 - Confirmer que les archives des années antérieures ont la même structure interne

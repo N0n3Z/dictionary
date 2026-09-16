@@ -29,6 +29,7 @@ pour les non-résidents). Les chemins sont relatifs au dossier du manifest.
 
 Usage :
     python3 02_parse_pdf_structure.py data/2024/manifest.json -o data/2024/pdf_struct.json
+    python3 02_parse_pdf_structure.py --annee 2024   # manifest/-o résolus via config.json
 
 Sortie JSON : { "<clé_document>": { "<code4chiffres>": {
     "check": "<chiffre de contrôle>", "page": <int>,
@@ -36,6 +37,7 @@ Sortie JSON : { "<clé_document>": { "<code4chiffres>": {
 } } }
 """
 import zipfile, re, json, argparse, os, subprocess, shutil
+from _layout import paths_for_year, add_annee_arg
 
 CODE = re.compile(r'(?<!\d)(\d{4})-(\d{2})(?!\d)')
 CADRE = re.compile(r'^\s*(cadre|kader)\s+[IVXLC0-9]+\s*[-–]', re.I)
@@ -147,9 +149,17 @@ def parse_document(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('manifest', help='chemin vers manifest.json de l\'année à traiter')
-    ap.add_argument('-o', '--out', required=True, help='chemin du fichier JSON de sortie')
+    ap.add_argument('manifest', nargs='?', help='chemin vers manifest.json de l\'année à traiter (optionnel si --annee est fourni)')
+    ap.add_argument('-o', '--out', help='chemin du fichier JSON de sortie (optionnel si --annee est fourni)')
+    add_annee_arg(ap)
     args = ap.parse_args()
+
+    if not args.manifest or not args.out:
+        if args.annee is None:
+            ap.error("manifest et -o/--out sont requis quand --annee n'est pas fourni")
+        paths = paths_for_year(args.annee, args.config)
+        args.manifest = args.manifest or paths['manifest']
+        args.out = args.out or paths['pdf_struct']
 
     manifest = json.load(open(args.manifest, encoding='utf-8'))
     base = os.path.dirname(os.path.abspath(args.manifest))

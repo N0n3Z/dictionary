@@ -16,20 +16,51 @@ Usage :
         --annee-revenus 2024 --exercice 2025 \
         -o data/2024/records.json
 
-Hypothèses reprises du test 2024 (À VÉRIFIER/AJUSTER pour chaque nouvelle année,
-voir CLAUDE.md à la racine du dépôt pour le détail) :
+    # équivalent, en s'appuyant sur config.json + data/2024/manifest.json :
+    python3 03_build_dictionary.py --annee 2024
+
+Hypothèses par défaut, reprises du test 2024 (À VÉRIFIER/AJUSTER pour chaque
+nouvelle année, voir CLAUDE.md à la racine du dépôt pour le détail) :
   - La feuille maître a un en-tête sur 3 lignes, données à partir de la ligne 4.
   - Colonnes (index 0-based) : 2=IPCAL_A(année N-1), 4=IPCAL_B(année N-1),
     5=Décl_A(année N), 6=IPCAL_A(année N), 7=Décl_B(année N), 8=IPCAL_B(année N),
     9=IPType, 14-17=hiérarchie NL (4 niveaux), 18-21=hiérarchie FR (4 niveaux).
     ADAPTER ces index si la structure du fichier Excel change d'une année à l'autre
     (imprimer les 5 premières lignes de la feuille pour vérifier avant de lancer).
+
+Pour ne pas éditer ce fichier quand une année s'écarte de ces hypothèses, tout ce
+qui précède peut être surchargé par année dans manifest.json, sous une clé
+"excel_columns" optionnelle :
+    {
+      "annee_revenus": 2021, "exercice_imposition": 2022,
+      "documents": {"P1_BXL": "raw/P1_BXL.txt", ...},
+      "excel_columns": {
+        "sheet": "Feuil1", "header_rows": 3,
+        "ipcal_a_prev": 2, "ipcal_b_prev": 4,
+        "decl_a": 5, "ipcal_a": 6, "decl_b": 7, "ipcal_b": 8, "iptype": 9,
+        "hier_nl": [14, 15, 16, 17], "hier_fr": [18, 19, 20, 21],
+        "src_label": {"P1_BXL": "PDF P1 Bruxelles"}
+      }
+    }
+Seules les clés qui s'écartent des valeurs par défaut ont besoin d'être présentes.
+La liste et l'ordre des clés de documents (utilisés pour la priorité PDF et les
+colonnes Present_<clé>) sont également lus depuis manifest.json ("documents"),
+donc un manifest pré-2014 avec une seule clé "P1" fonctionne sans autre changement.
 """
-import openpyxl, json, re, argparse
+import openpyxl, json, re, argparse, os
+from _layout import paths_for_year, add_annee_arg
 
 TITULAIRE = set('ACEGIK')
 CONJOINT = set('BDFHJL')
 REGIO_RE = re.compile(r'gewest|régional|regional|regio|vlaams|wallon|bruxell|brussel', re.I)
+
+DEFAULT_COLUMNS = {
+    'ipcal_a_prev': 2, 'ipcal_b_prev': 4,
+    'decl_a': 5, 'ipcal_a': 6, 'decl_b': 7, 'ipcal_b': 8,
+    'iptype': 9,
+    'hier_nl': [14, 15, 16, 17],
+    'hier_fr': [18, 19, 20, 21],
+}
 
 IPTYPE_LABELS = {
     90: 'Revenus immobiliers – régime 90 (à préciser)',
@@ -46,8 +77,8 @@ SRC_LABEL_DEFAULT = {
     'P1_BXL': 'PDF P1 Bruxelles', 'P1_RF': 'PDF P1 Flandre', 'P1_RW': 'PDF P1 Wallonie',
     'P2': 'PDF P2 (indépendants)', 'INR_P1': 'PDF INR P1', 'INR_P2': 'PDF INR P2',
 }
-RESIDENT_KEYS_DEFAULT = ['P1_BXL', 'P1_RF', 'P1_RW', 'P2']
-INR_KEYS_DEFAULT = ['INR_P1', 'INR_P2']
+# Convention de classement résident/INR par préfixe de clé ("INR_" -> non-résident) ;
+# la liste et l'ordre des clés eux-mêmes viennent de manifest.json (voir build()).
 
 
 def cl(v):
@@ -89,15 +120,21 @@ def nature_of(prefix, declared):
 
 
 def build(excel_path, sheet_name, struct_path, annee_revenus, exercice, header_rows=3,
-          resident_keys=None, inr_keys=None, src_label=None):
-    resident_keys = resident_keys or RESIDENT_KEYS_DEFAULT
-    inr_keys = inr_keys or INR_KEYS_DEFAULT
-    src_label = src_label or SRC_LABEL_DEFAULT
-    pdf_order = list(src_label.keys())
+          columns=None, doc_keys=None, src_label_overrides=None):
+    columns = {**DEFAULT_COLUMNS, **(columns or {})}
 
     pdf_struct = json.load(open(struct_path, encoding='utf-8'))
+    # Ordre/liste des clés de documents : depuis manifest.json (doc_keys) si fourni,
+    # sinon depuis les clés effectivement présentes dans pdf_struct.json (compatible
+    # avec un appel sans manifest, ex. usage direct de la fonction build()).
+    pdf_order = list(doc_keys) if doc_keys is not None else list(pdf_struct.keys())
     for k in pdf_order:
         pdf_struct.setdefault(k, {})
+    resident_keys = [k for k in pdf_order if not k.startswith('INR_')]
+    inr_keys = [k for k in pdf_order if k.startswith('INR_')]
+    src_label = {k: SRC_LABEL_DEFAULT.get(k, k.replace('_', ' ')) for k in pdf_order}
+    if src_label_overrides:
+        src_label.update(src_label_overrides)
 
     def pdf_lookup(d4):
         if not d4:
@@ -119,12 +156,12 @@ def build(excel_path, sheet_name, struct_path, annee_revenus, exercice, header_r
 
     records = []
     for idx, r in enumerate(rows):
-        ipcalA = cl(r[6]); ipcalB = cl(r[8])
-        declA = dnum(r[5]); declB = dnum(r[7])
-        oldA = cl(r[2]); oldB = cl(r[4])
-        iptype = r[9]
-        nl = [cl(r[14]), cl(r[15]), cl(r[16]), cl(r[17])]
-        fr = [cl(r[18]), cl(r[19]), cl(r[20]), cl(r[21])]
+        ipcalA = cl(r[columns['ipcal_a']]); ipcalB = cl(r[columns['ipcal_b']])
+        declA = dnum(r[columns['decl_a']]); declB = dnum(r[columns['decl_b']])
+        oldA = cl(r[columns['ipcal_a_prev']]); oldB = cl(r[columns['ipcal_b_prev']])
+        iptype = r[columns['iptype']]
+        nl = [cl(r[i]) for i in columns['hier_nl']]
+        fr = [cl(r[i]) for i in columns['hier_fr']]
         leaf_fr = next((x for x in reversed(fr) if x), '')
         leaf_nl = next((x for x in reversed(nl) if x), '')
         ipt_raw = iptype if isinstance(iptype, int) else ''
@@ -238,16 +275,50 @@ def build(excel_path, sheet_name, struct_path, annee_revenus, exercice, header_r
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--excel', required=True)
-    ap.add_argument('--sheet', default='IPCAL_Codes')
-    ap.add_argument('--struct', required=True, help='JSON produit par 02_parse_pdf_structure.py')
-    ap.add_argument('--annee-revenus', type=int, required=True)
-    ap.add_argument('--exercice', type=int, required=True)
-    ap.add_argument('--header-rows', type=int, default=3, help='nb de lignes d\'en-tête avant les données (def=3)')
-    ap.add_argument('-o', '--out', required=True)
+    ap.add_argument('--excel', help="Excel maître (optionnel si --annee : résolu via config.json)")
+    ap.add_argument('--sheet', help="feuille Excel (défaut IPCAL_Codes, ou manifest.excel_columns.sheet)")
+    ap.add_argument('--struct', help="JSON produit par 02_parse_pdf_structure.py (optionnel si --annee)")
+    ap.add_argument('--manifest', help="manifest.json de l'année : fournit la liste des clés de documents "
+                                        "et, en option, la structure Excel (voir docstring). Résolu via --annee si omis.")
+    ap.add_argument('--annee-revenus', type=int)
+    ap.add_argument('--exercice', type=int)
+    ap.add_argument('--header-rows', type=int, help="nb de lignes d'en-tête (défaut 3, ou manifest.excel_columns.header_rows)")
+    ap.add_argument('-o', '--out', help="optionnel si --annee")
+    add_annee_arg(ap)
     args = ap.parse_args()
 
-    records = build(args.excel, args.sheet, args.struct, args.annee_revenus, args.exercice, args.header_rows)
+    paths = paths_for_year(args.annee, args.config) if args.annee is not None else {}
+    args.excel = args.excel or paths.get('excel_master')
+    args.struct = args.struct or paths.get('pdf_struct')
+    args.manifest = args.manifest or paths.get('manifest')
+    args.out = args.out or paths.get('records')
+    args.annee_revenus = args.annee_revenus or args.annee
+
+    manifest = None
+    if args.manifest and os.path.exists(args.manifest):
+        manifest = json.load(open(args.manifest, encoding='utf-8'))
+
+    if args.exercice is None:
+        if manifest and manifest.get('exercice_imposition'):
+            args.exercice = manifest['exercice_imposition']
+        elif args.annee_revenus is not None:
+            args.exercice = args.annee_revenus + 1
+
+    excel_cfg = (manifest or {}).get('excel_columns', {})
+    sheet = args.sheet or excel_cfg.get('sheet') or 'IPCAL_Codes'
+    header_rows = args.header_rows if args.header_rows is not None else excel_cfg.get('header_rows', 3)
+    columns = {k: v for k, v in excel_cfg.items() if k not in ('sheet', 'header_rows', 'src_label')}
+    doc_keys = list(manifest['documents'].keys()) if manifest else None
+    src_label_overrides = excel_cfg.get('src_label')
+
+    missing = [n for n, v in [('--excel', args.excel), ('--struct', args.struct), ('-o/--out', args.out),
+                               ('--annee-revenus', args.annee_revenus), ('--exercice', args.exercice)] if not v]
+    if missing:
+        ap.error(f"paramètres manquants ({', '.join(missing)}) — fournir --annee, ou tout spécifier explicitement.")
+
+    records = build(args.excel, sheet, args.struct, args.annee_revenus, args.exercice, header_rows,
+                     columns=columns, doc_keys=doc_keys, src_label_overrides=src_label_overrides)
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)) or '.', exist_ok=True)
     json.dump(records, open(args.out, 'w', encoding='utf-8'), ensure_ascii=False)
     from collections import Counter
     print(f'{len(records)} lignes-codes écrites dans {args.out}')

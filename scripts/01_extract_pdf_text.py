@@ -4,14 +4,16 @@ Allège les archives "PDF" IPCAL (en réalité des ZIP page1.jpeg+page1.txt+...+
 en ne conservant que le texte OCR, page par page.
 
 Usage :
-    python3 extract_pdf_text.py fichier1.pdf [fichier2.pdf ...]
-    python3 extract_pdf_text.py --dir /chemin/vers/dossier   # tous les .pdf du dossier
+    python3 01_extract_pdf_text.py fichier1.pdf [fichier2.pdf ...]
+    python3 01_extract_pdf_text.py --dir /chemin/vers/dossier   # tous les .pdf du dossier
+    python3 01_extract_pdf_text.py --annee 2023                 # résout raw_dir via config.json
 
 Produit un .txt à côté de chaque fichier source (même nom, extension .txt),
 ~40x plus léger, avec un marqueur "=== PAGE N ===" avant chaque page
 (nécessaire pour que le parseur retrouve la structure Cadre/Section/Rubrique).
 """
 import zipfile, sys, os, glob, subprocess, shutil
+from _layout import paths_for_year
 
 def extract_from_zip(path, out_path):
     z = zipfile.ZipFile(path)
@@ -69,6 +71,10 @@ def main():
         print(__doc__); sys.exit(1)
     if args[0] == '--dir':
         files = sorted(glob.glob(os.path.join(args[1], '*.pdf')))
+    elif args[0] == '--annee':
+        config_path = args[3] if len(args) > 3 and args[2] == '--config' else None
+        raw_dir = paths_for_year(int(args[1]), config_path)['raw_dir']
+        files = sorted(glob.glob(os.path.join(raw_dir, '*.pdf')))
     else:
         files = args
     print(f'{len(files)} fichier(s) à traiter :')
