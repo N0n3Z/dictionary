@@ -91,16 +91,31 @@ difflib max = 0.559 après normalisation — voir seuil `SEUIL_SUSPECT` dans le 
   `Code_IPCAL_precedent == Code_IPCAL` dans 100% des cas non-nouveaux — donc le code
   sert d'identifiant stable de variable ; à revoir si une future année renumérote),
   détecte les runs d'années manquantes dans le span [première, dernière année connue],
-  et calcule une similarité libellé+hiérarchie avant/après chaque coupure.
+  calcule une similarité libellé+hiérarchie avant/après chaque coupure, et **scinde
+  en plusieurs "générations" les codes dont une coupure est jugée suspecte** (une
+  ligne par génération, plutôt qu'une ligne par code brut — voir ci-dessous).
   `python3 05_build_historique.py data/*/records.json -o data/historique.json`
-- `06_write_historique_excel.py` : classeur 3 feuilles — `Historique` (une ligne par
-  code, un libellé par année en colonnes, trous et ruptures suspectes surlignés),
-  `Alertes_rupture` (une ligne par épisode de coupure, triée par similarité croissante
-  = cas les plus suspects en premier), `Legende` (méthode et limites).
+- `06_write_historique_excel.py` : classeur 4 feuilles — `Codes_avec_rupture` (LA
+  feuille à consulter avant tout mapping : uniquement les ~76 codes scindés, une
+  ligne par génération avec sa plage de validité), `Historique` (une ligne par
+  génération, libellé par année en colonnes, cellules grises hors plage de validité
+  de la génération, oranges pour une coupure mineure interne), `Ruptures_semantiques`
+  (une ligne par frontière entre générations, triée par similarité croissante =
+  cas les plus suspects en premier), `Legende` (méthode et limites).
   `python3 06_write_historique_excel.py data/historique.json -o IPCAL_historique_variables.xlsx`
+- **Pas d'identifiant inventé** (décision utilisateur, 2026-09-16, à ne pas revenir
+  dessus sans consigne explicite) : `Code_IPCAL` reste la clé partout, y compris dans
+  le `Dictionnaire` annuel, où `(Code_IPCAL, Annee_revenus)` désambiguïse déjà
+  totalement. Seul un usage hors-année (mapping vers des agrégats nationaux) a besoin
+  de désambiguïser un code scindé — d'où `Cle_mapping` : `Code_IPCAL` nu si une seule
+  génération (~99% des codes, coût nul), sinon `"<Code_IPCAL>-<Validite_debut>"` (ex.
+  `A0270-2021`). Le flag `Rupture_semantique` (True sur toutes les générations d'un
+  code scindé) doit être vérifié avant tout mapping par `Code_IPCAL` seul.
 - Limite connue : ne détecte que la dérive accompagnée d'une coupure de disponibilité
   (conforme au signal empirique documenté) ; un changement de sens sans coupure
-  (code présent en continu mais qui change de signification) n'est pas couvert.
+  (code présent en continu mais qui change de signification) n'est pas couvert —
+  un tel cas resterait une seule génération, avec `Rupture_semantique=False`, sans
+  aucun signal d'alerte pour un futur mapping.
 
 ## Gotchas techniques
 - Caractères de contrôle OCR corrompent l'écriture openpyxl : sanitizer

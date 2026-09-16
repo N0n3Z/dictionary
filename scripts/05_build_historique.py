@@ -12,19 +12,38 @@ Si une future année introduit une renumérotation (Code_IPCAL_precedent différ
 de Code_IPCAL), ce script devra être étendu pour chaîner les codes via ce champ
 plutôt que par égalité stricte.
 
+Pas d'identifiant inventé : Code_IPCAL reste la clé partout, y compris dans le
+Dictionnaire annuel, où (Code_IPCAL, Annee_revenus) désambiguïse déjà totalement
+(une ligne 2017 pour A0270 désigne sans ambiguïté sa signification 2017). Le
+problème de désambiguïsation ne se pose que hors contexte annuel -- typiquement un
+futur mapping vers des agrégats nationaux, où "A0270 -> quel agrégat ?" n'a de sens
+qu'avec une année ou une plage de validité. C'est donc uniquement ce script (et son
+classeur) qui scinde un Code_IPCAL en plusieurs générations quand une rupture
+sémantique est suspectée -- une ligne par génération, avec sa propre plage de
+validité (Validite_debut/Validite_fin) plutôt qu'un suffixe arbitraire. Coût nul
+pour les ~99% de codes sans rupture (une seule génération, Cle_mapping == Code_IPCAL) ;
+pour les codes scindés, Cle_mapping = "<Code_IPCAL>-<Validite_debut>" (ex.
+"A0270-2021"), lisible sans devoir consulter une table de correspondance.
+
+Rupture_semantique (booléen, sur CHAQUE génération d'un code scindé) est LE signal
+à regarder avant d'utiliser Code_IPCAL seul dans un mapping : True => ne jamais
+mapper ce code sans préciser une année/plage de validité.
+
 Deux signaux distincts :
 - Rupture_disponibilite : le code est absent >=1 an entre sa première et sa
   dernière apparition observée dans le jeu de données chargé, puis réapparaît.
   C'est un fait, pas une heuristique.
-- Rupture_semantique_suspectee : en plus de la rupture de disponibilité, le
-  libellé/la hiérarchie d'avant et d'après la coupure sont peu similaires
-  (comparaison difflib après normalisation : minuscules, ponctuation et années
-  à 4 chiffres retirées -- une phrase du type "mariés en 2024" ne doit pas être
-  vue comme un changement de sens du seul fait que l'année citée change).
+- Rupture_semantique (au niveau d'une coupure) : en plus de la rupture de
+  disponibilité, le libellé/la hiérarchie d'avant et d'après la coupure sont peu
+  similaires (comparaison difflib après normalisation : minuscules, ponctuation et
+  années à 4 chiffres retirées -- une phrase du type "mariés en 2024" ne doit pas
+  être vue comme un changement de sens du seul fait que l'année citée change).
   C'est une heuristique de priorisation pour revue manuelle, pas une certitude
   (constaté : des reformulations pures de la hiérarchie Excel d'une édition à
   l'autre, sans rupture de sens réelle, peuvent aussi produire une similarité
-  basse -- cf. Legende du classeur de sortie).
+  basse -- cf. Legende du classeur de sortie). Une coupure jugée suspecte scinde le
+  code en deux générations ; une coupure non suspecte (libellé resté similaire)
+  reste une simple absence temporaire signalée dans la génération concernée.
 
 Usage :
     python3 05_build_historique.py data/*/records.json -o data/historique.json
@@ -37,7 +56,7 @@ YEAR_RE = re.compile(r'\b(19|20)\d{2}\b')
 PUNCT_RE = re.compile(r'[^\w\s]', re.UNICODE)
 SPACE_RE = re.compile(r'\s+')
 
-SEUIL_SUSPECT = 0.6  # similarité en-dessous de laquelle une rupture est jugée suspecte
+SEUIL_SUSPECT = 0.6  # similarité en-dessous de laquelle une rupture est jugée suspecte (=> scinde en 2 générations)
 # Calibré empiriquement sur 2017-2023 : parmi les 76 ruptures observées, la similarité
 # libellé/hiérarchie avant->après culmine à 0.559 (max) -- même les paires les "moins
 # suspectes" au sens de ce score correspondent, à relecture manuelle, à un changement de
@@ -79,8 +98,7 @@ def load_records(patterns):
 
 def gaps_in_span(years_present):
     """Runs d'années manquantes strictement entre la première et la dernière
-    année présente (une absence après la dernière année n'est pas une "rupture"
-    au sens de ce script -- juste une possible fin de vie de la variable)."""
+    année présente d'une plage donnée."""
     if len(years_present) < 2:
         return []
     lo, hi = years_present[0], years_present[-1]
@@ -105,14 +123,14 @@ def build(by_year):
         for r in by_year[y]:
             by_code[r['Code_IPCAL']][y] = r
 
-    out = []
+    variables = []
+    ruptures = []
     for code, per_year in sorted(by_code.items()):
         years_present = sorted(per_year)
-        first, last = years_present[0], years_present[-1]
-        gap_runs = gaps_in_span(years_present)
 
+        # 1) toutes les coupures sur le span complet du code, suspectes ou non
+        gap_runs = gaps_in_span(years_present)
         alerts = []
-        min_sim = None
         for run in gap_runs:
             before_year, after_year = run[0] - 1, run[-1] + 1
             before, after = per_year.get(before_year), per_year.get(after_year)
@@ -122,7 +140,6 @@ def build(by_year):
                 before['Libelle_FR'] + ' ' + before['Chemin_hierarchique'],
                 after['Libelle_FR'] + ' ' + after['Chemin_hierarchique'],
             )
-            min_sim = sim if min_sim is None else min(min_sim, sim)
             alerts.append({
                 'annees_absentes': run, 'avant_annee': before_year, 'apres_annee': after_year,
                 'avant_libelle': before['Libelle_FR'], 'apres_libelle': after['Libelle_FR'],
@@ -131,27 +148,67 @@ def build(by_year):
                 'suspect': sim < SEUIL_SUSPECT,
             })
 
-        latest = per_year[last]
-        out.append({
-            'Code_IPCAL': code,
-            'Prefixe': latest['Prefixe'],
-            'Conjoint': latest['Conjoint'],
-            'Nature_variable': latest['Nature_variable'],
-            'Premiere_annee_connue': first,
-            'Derniere_annee_connue': last,
-            'Annees_presentes': years_present,
-            'Nb_annees_presentes': len(years_present),
-            'Continuite_pct': round(100 * len(years_present) / (last - first + 1), 1),
-            'Rupture_disponibilite': bool(gap_runs),
-            'Nb_ruptures': len(gap_runs),
-            'Rupture_semantique_suspectee': any(a['suspect'] for a in alerts),
-            'Similarite_min_avant_apres_rupture': round(min_sim, 3) if min_sim is not None else None,
-            'Alertes_rupture': alerts,
-            'Libelle_par_annee': {y: per_year[y]['Libelle_FR'] for y in years_present},
-            'Chemin_par_annee': {y: per_year[y]['Chemin_hierarchique'] for y in years_present},
-            'Source_par_annee': {y: per_year[y]['Source_hierarchie'] for y in years_present},
-        })
-    return all_years, out
+        # 2) scission en générations uniquement aux coupures suspectes
+        split_after = {a['avant_annee'] for a in alerts if a['suspect']}
+        generations, current = [], []
+        for y in years_present:
+            current.append(y)
+            if y in split_after:
+                generations.append(current)
+                current = []
+        if current:
+            generations.append(current)
+        nb_gen = len(generations)
+        rupture_semantique = nb_gen > 1
+
+        for gi, gen_years in enumerate(generations, start=1):
+            gfirst, glast = gen_years[0], gen_years[-1]
+            gen_gap_runs = gaps_in_span(gen_years)  # coupures mineures (non suspectes) internes à cette génération
+            gen_alerts = [a for a in alerts if a['avant_annee'] >= gfirst and a['apres_annee'] <= glast]
+            min_sim = min((a['similarite'] for a in gen_alerts), default=None)
+            latest = per_year[glast]
+            cle_mapping = code if nb_gen == 1 else f'{code}-{gfirst}'
+
+            variables.append({
+                'Code_IPCAL': code,
+                'Cle_mapping': cle_mapping,
+                'Generation': gi,
+                'Nb_generations_total': nb_gen,
+                'Rupture_semantique': rupture_semantique,
+                'Prefixe': latest['Prefixe'],
+                'Conjoint': latest['Conjoint'],
+                'Nature_variable': latest['Nature_variable'],
+                'Validite_debut': gfirst,
+                'Validite_fin': glast,
+                'Annees_presentes': gen_years,
+                'Nb_annees_presentes': len(gen_years),
+                'Continuite_pct': round(100 * len(gen_years) / (glast - gfirst + 1), 1),
+                'Rupture_disponibilite_mineure': bool(gen_gap_runs),
+                'Nb_ruptures_mineures': len(gen_gap_runs),
+                'Similarite_min_coupures_mineures': round(min_sim, 3) if min_sim is not None else None,
+                'Alertes_mineures': gen_alerts,
+                'Libelle_par_annee': {y: per_year[y]['Libelle_FR'] for y in gen_years},
+                'Chemin_par_annee': {y: per_year[y]['Chemin_hierarchique'] for y in gen_years},
+                'Source_par_annee': {y: per_year[y]['Source_hierarchie'] for y in gen_years},
+            })
+
+        # 3) événements de rupture sémantique (= frontières entre générations), pour le classeur
+        if rupture_semantique:
+            gen_of_year = {y: gi for gi, gy in enumerate(generations, start=1) for y in gy}
+            for a in alerts:
+                if not a['suspect']:
+                    continue
+                gi_avant, gi_apres = gen_of_year[a['avant_annee']], gen_of_year[a['apres_annee']]
+                # nb_gen > 1 ici (on est dans le bloc rupture_semantique) => toutes les
+                # générations de ce code, y compris la 1re, portent un Cle_mapping suffixé.
+                cle_avant = f'{code}-{generations[gi_avant - 1][0]}'
+                cle_apres = f'{code}-{generations[gi_apres - 1][0]}'
+                ruptures.append({
+                    'Code_IPCAL': code, 'Nature_variable': per_year[years_present[-1]]['Nature_variable'],
+                    'Cle_mapping_avant': cle_avant, 'Cle_mapping_apres': cle_apres,
+                    **a,
+                })
+    return all_years, variables, ruptures
 
 
 def main():
@@ -163,15 +220,15 @@ def main():
     by_year = load_records(args.records)
     if not by_year:
         raise SystemExit('Aucun enregistrement chargé — vérifier les chemins.')
-    all_years, out = build(by_year)
+    all_years, variables, ruptures = build(by_year)
 
-    json.dump({'annees': all_years, 'variables': out}, open(args.out, 'w', encoding='utf-8'), ensure_ascii=False)
+    json.dump({'annees': all_years, 'variables': variables, 'ruptures_semantiques': ruptures},
+               open(args.out, 'w', encoding='utf-8'), ensure_ascii=False)
 
-    n_gap = sum(1 for v in out if v['Rupture_disponibilite'])
-    n_susp = sum(1 for v in out if v['Rupture_semantique_suspectee'])
-    print(f'{len(out)} variables (codes) sur {len(all_years)} années ({all_years[0]}-{all_years[-1]})')
-    print(f'  avec au moins une rupture de disponibilité : {n_gap}')
-    print(f'  dont dérive sémantique suspectée (libellé très différent après coupure) : {n_susp}')
+    codes_scindes = {v['Code_IPCAL'] for v in variables if v['Rupture_semantique']}
+    print(f'{len({v["Code_IPCAL"] for v in variables})} codes sur {len(all_years)} années ({all_years[0]}-{all_years[-1]})')
+    print(f'  {len(variables)} lignes (générations) au total')
+    print(f'  codes avec rupture sémantique (scindés) : {len(codes_scindes)} -> {len(ruptures)} coupure(s) au total')
     print(f'Écrit : {args.out}')
 
 
