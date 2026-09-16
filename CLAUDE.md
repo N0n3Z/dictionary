@@ -112,6 +112,12 @@ difflib max = 0.559 après normalisation — voir seuil `SEUIL_SUSPECT` dans le 
   archive) → c'est le signal utilisé pour basculer sur le mode de secours `pdftotext`.
 
 ## Pipeline (scripts/, dans l'ordre)
+0. **`00_check_sources.py`** — contrôle de couverture des sources brutes par année
+   (PDF par région/partie, non-résidents, Excel maître) : présent+déclaré, manquant,
+   déclaré-mais-fichier-absent, présent-mais-non-déclaré, ou non applicable (ex. pas
+   de découpage régional avant 2014). Ne dépend d'aucune autre étape — tourne dès
+   qu'une année est déposée, avant même 01. `python3 00_check_sources.py [--debut
+   2014] [--fin <dernière année trouvée>] -o IPCAL_controle_sources.xlsx`
 1. **`01_extract_pdf_text.py`** — allège les "PDF" (zip→texte, ou vrai PDF→pdftotext).
    `python3 01_extract_pdf_text.py --dir data/<année>/raw`
 2. **`02_parse_pdf_structure.py`** — reconstruit Cadre/Section/Rubrique/Libellé par

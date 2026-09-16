@@ -10,6 +10,10 @@ automatiquement au démarrage d'une session dans ce dossier).
 mkdir -p data/2023/raw
 cp ~/Téléchargements/*2023* data/2023/raw/
 
+# 1bis. Vérifier ce qui manque avant d'aller plus loin (utile aussi en routine,
+#       sur toute la série, pour repérer un trou de collecte type "Bruxelles 2016")
+python3 scripts/00_check_sources.py
+
 # 2. Alléger les PDF (texte OCR uniquement)
 python3 scripts/01_extract_pdf_text.py --annee 2023
 
