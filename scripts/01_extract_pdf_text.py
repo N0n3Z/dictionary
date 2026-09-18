@@ -12,8 +12,8 @@ Produit un .txt à côté de chaque fichier source (même nom, extension .txt),
 ~40x plus léger, avec un marqueur "=== PAGE N ===" avant chaque page
 (nécessaire pour que le parseur retrouve la structure Cadre/Section/Rubrique).
 """
-import zipfile, sys, os, glob, subprocess, shutil
-from _layout import paths_for_year
+import zipfile, os, glob, argparse, subprocess, shutil
+from _layout import paths_for_year, add_annee_arg
 
 def extract_from_zip(path, out_path):
     z = zipfile.ZipFile(path)
@@ -66,17 +66,25 @@ def extract_one(path):
     print(f'  {os.path.basename(path)}: {before/1e6:.2f} MB -> {os.path.basename(out_path)}: {after/1e3:.1f} KB  (x{before/max(after,1):.0f} plus léger)')
 
 def main():
-    args = sys.argv[1:]
-    if not args:
-        print(__doc__); sys.exit(1)
-    if args[0] == '--dir':
-        files = sorted(glob.glob(os.path.join(args[1], '*.pdf')))
-    elif args[0] == '--annee':
-        config_path = args[3] if len(args) > 3 and args[2] == '--config' else None
-        raw_dir = paths_for_year(int(args[1]), config_path)['raw_dir']
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('fichiers', nargs='*', help='fichiers PDF à traiter (alternative à --dir / --annee)')
+    ap.add_argument('--dir', help='traiter tous les .pdf de ce dossier')
+    add_annee_arg(ap)
+    args = ap.parse_args()
+
+    if args.dir:
+        files = sorted(glob.glob(os.path.join(args.dir, '*.pdf')))
+    elif args.annee is not None:
+        raw_dir = paths_for_year(args.annee, args.config)['raw_dir']
         files = sorted(glob.glob(os.path.join(raw_dir, '*.pdf')))
+    elif args.fichiers:
+        files = args.fichiers
     else:
-        files = args
+        ap.error('fournir des fichiers, --dir <dossier>, ou --annee <année>')
+
+    if not files:
+        print('Aucun fichier .pdf trouvé.')
+        return
     print(f'{len(files)} fichier(s) à traiter :')
     for f in files:
         extract_one(f)
