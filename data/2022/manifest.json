@@ -1,6 +1,6 @@
 {
-  "annee_revenus": 2022,
-  "exercice_imposition": 2023,
+  "income_year": 2022,
+  "assessment_year": 2023,
   "documents": {
     "P1_BXL": "raw/P1_BXL.txt",
     "P1_RF": "raw/P1_RF.txt",

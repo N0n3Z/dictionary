@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-Allège les archives "PDF" IPCAL (en réalité des ZIP page1.jpeg+page1.txt+...+manifest.json)
-en ne conservant que le texte OCR, page par page.
+Strips IPCAL "PDF" files down to their OCR text, page by page.
 
-Usage :
-    python3 01_extract_pdf_text.py fichier1.pdf [fichier2.pdf ...]
-    python3 01_extract_pdf_text.py --dir /chemin/vers/dossier   # tous les .pdf du dossier
-    python3 01_extract_pdf_text.py --annee 2023                 # résout raw_dir via config.json
+Two input formats are handled, detected by content rather than extension:
+  - real PDFs (extracted with pdftotext -layout)
+  - ZIP archives disguised as .pdf (page1.jpeg + page1.txt + ... + manifest.json),
+    which is how the administration shipped some years
 
-Produit un .txt à côté de chaque fichier source (même nom, extension .txt),
-~40x plus léger, avec un marqueur "=== PAGE N ===" avant chaque page
-(nécessaire pour que le parseur retrouve la structure Cadre/Section/Rubrique).
+Usage:
+    python3 01_extract_pdf_text.py file1.pdf [file2.pdf ...]
+    python3 01_extract_pdf_text.py --dir /path/to/folder   # every .pdf in the folder
+    python3 01_extract_pdf_text.py --year 2023             # resolves raw_dir via config.json
+
+Writes a .txt next to each source file (same name, .txt extension), roughly 5-40x
+smaller, with a "=== PAGE N ===" marker before each page (required for the parser to
+recover the Frame/Section/Item structure).
 """
 import zipfile, os, glob, argparse, subprocess, shutil
-from _layout import paths_for_year, add_annee_arg
+from _layout import paths_for_year, add_year_arg
+
 
 def extract_from_zip(path, out_path):
     z = zipfile.ZipFile(path)
@@ -22,7 +27,7 @@ def extract_from_zip(path, out_path):
         key=lambda n: int(''.join(filter(str.isdigit, n.split('/')[-1])) or 0)
     )
     if not txts:
-        print(f'  [ignoré] {path} : aucun fichier .txt trouvé dans l\'archive')
+        print(f'  [skipped] {path}: no .txt file inside the archive')
         return False
     with open(out_path, 'w', encoding='utf-8') as out:
         for t in txts:
@@ -33,15 +38,16 @@ def extract_from_zip(path, out_path):
             out.write('\n')
     return True
 
+
 def extract_from_real_pdf(path, out_path):
-    """Vrai PDF (pas d'archive) : pdftotext -layout, pages séparées par \\f
-    (saut de page inséré par pdftotext par défaut) — pas besoin de pdfinfo."""
+    """Real PDF (not an archive): pdftotext -layout, pages separated by \\f
+    (form feed inserted by pdftotext by default) -- no need for pdfinfo."""
     if shutil.which('pdftotext') is None:
-        print(f'  [ignoré] {path} : pdftotext introuvable (installer poppler-utils)')
+        print(f'  [skipped] {path}: pdftotext not found (install poppler-utils)')
         return False
     r = subprocess.run(['pdftotext', '-layout', path, '-'], capture_output=True, text=True)
     if r.returncode != 0:
-        print(f'  [erreur] {path} : pdftotext a échoué : {r.stderr.strip()[:200]}')
+        print(f'  [error] {path}: pdftotext failed: {r.stderr.strip()[:200]}')
         return False
     pages = r.stdout.split('\f')
     if pages and pages[-1] == '':
@@ -53,6 +59,7 @@ def extract_from_real_pdf(path, out_path):
             out.write('\n')
     return True
 
+
 def extract_one(path):
     out_path = os.path.splitext(path)[0] + '.txt'
     try:
@@ -63,31 +70,33 @@ def extract_one(path):
         return
     before = os.path.getsize(path)
     after = os.path.getsize(out_path)
-    print(f'  {os.path.basename(path)}: {before/1e6:.2f} MB -> {os.path.basename(out_path)}: {after/1e3:.1f} KB  (x{before/max(after,1):.0f} plus léger)')
+    print(f'  {os.path.basename(path)}: {before/1e6:.2f} MB -> {os.path.basename(out_path)}: {after/1e3:.1f} KB  ({before/max(after,1):.0f}x smaller)')
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('fichiers', nargs='*', help='fichiers PDF à traiter (alternative à --dir / --annee)')
-    ap.add_argument('--dir', help='traiter tous les .pdf de ce dossier')
-    add_annee_arg(ap)
+    ap.add_argument('files', nargs='*', help='PDF files to process (alternative to --dir / --year)')
+    ap.add_argument('--dir', help='process every .pdf in this folder')
+    add_year_arg(ap)
     args = ap.parse_args()
 
     if args.dir:
         files = sorted(glob.glob(os.path.join(args.dir, '*.pdf')))
-    elif args.annee is not None:
-        raw_dir = paths_for_year(args.annee, args.config)['raw_dir']
+    elif args.year is not None:
+        raw_dir = paths_for_year(args.year, args.config)['raw_dir']
         files = sorted(glob.glob(os.path.join(raw_dir, '*.pdf')))
-    elif args.fichiers:
-        files = args.fichiers
+    elif args.files:
+        files = args.files
     else:
-        ap.error('fournir des fichiers, --dir <dossier>, ou --annee <année>')
+        ap.error('provide files, --dir <folder>, or --year <year>')
 
     if not files:
-        print('Aucun fichier .pdf trouvé.')
+        print('No .pdf file found.')
         return
-    print(f'{len(files)} fichier(s) à traiter :')
+    print(f'{len(files)} file(s) to process:')
     for f in files:
         extract_one(f)
+
 
 if __name__ == '__main__':
     main()

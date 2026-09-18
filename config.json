@@ -1,13 +1,13 @@
 {
-  "_comment": "Disposition des dossiers/fichiers du pipeline. Modifiez librement pour un run local avec une autre organisation -- voir scripts/_layout.py pour la logique de résolution des gabarits ({annee}, {data_dir}, ou toute autre clé de \"layout\"). Les valeurs ci-dessous reproduisent exactement la disposition historique du dépôt.",
+  "_comment": "Folder/file layout for the pipeline. Edit freely for a local run with a different organisation -- see scripts/_layout.py for how templates are resolved ({year}, {data_dir}, or any other \"layout\" key). The values below reproduce the repository's historical layout exactly.",
   "data_dir": "data",
   "layout": {
-    "year_dir": "{data_dir}/{annee}",
+    "year_dir": "{data_dir}/{year}",
     "raw_dir": "{year_dir}/raw",
     "manifest": "{year_dir}/manifest.json",
     "pdf_struct": "{year_dir}/pdf_struct.json",
     "records": "{year_dir}/records.json",
-    "excel_master": "{raw_dir}/IPCAL_{annee}.xlsx",
-    "workbook_annee": "{year_dir}/IPCAL_data_dictionary_{annee}.xlsx"
+    "excel_master": "{raw_dir}/IPCAL_{year}.xlsx",
+    "workbook_year": "{year_dir}/IPCAL_data_dictionary_{year}.xlsx"
   }
 }
