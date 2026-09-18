@@ -12,18 +12,23 @@ Si une future année introduit une renumérotation (Code_IPCAL_precedent différ
 de Code_IPCAL), ce script devra être étendu pour chaîner les codes via ce champ
 plutôt que par égalité stricte.
 
-Pas d'identifiant inventé : Code_IPCAL reste la clé partout, y compris dans le
-Dictionnaire annuel, où (Code_IPCAL, Annee_revenus) désambiguïse déjà totalement
-(une ligne 2017 pour A0270 désigne sans ambiguïté sa signification 2017). Le
-problème de désambiguïsation ne se pose que hors contexte annuel -- typiquement un
-futur mapping vers des agrégats nationaux, où "A0270 -> quel agrégat ?" n'a de sens
-qu'avec une année ou une plage de validité. C'est donc uniquement ce script (et son
-classeur) qui scinde un Code_IPCAL en plusieurs générations quand une rupture
-sémantique est suspectée -- une ligne par génération, avec sa propre plage de
-validité (Validite_debut/Validite_fin) plutôt qu'un suffixe arbitraire. Coût nul
-pour les ~99% de codes sans rupture (une seule génération, Cle_mapping == Code_IPCAL) ;
-pour les codes scindés, Cle_mapping = "<Code_IPCAL>-<Validite_debut>" (ex.
-"A0270-2021"), lisible sans devoir consulter une table de correspondance.
+Architecture en deux niveaux, décision utilisateur (ne pas y revenir sans consigne
+explicite) :
+ 1. table primaire = le Dictionnaire annuel (03/04) : UNE LIGNE PAR CODE PAR ANNÉE,
+    où (Code_IPCAL, Annee_revenus) désambiguïse déjà totalement (une ligne 2017 pour
+    A0270 désigne sans ambiguïté sa signification 2017) ;
+ 2. vue agrégée = ce script : une ligne par "code sémantique" -- une seule pour les
+    ~99% de codes dont le sens ne change pas, plusieurs ("générations") pour ceux
+    dont une rupture sémantique est suspectée.
+
+AUCUN identifiant synthétique : Code_IPCAL n'est jamais altéré ni suffixé, dans
+aucune table. La désambiguïsation d'un code scindé se fait par CLÉ COMPOSITE en deux
+colonnes -- (Code_IPCAL, Validite_debut) -- et non par une chaîne concaténée du type
+"A0270-2021", qui ressemblerait à un code IPCAL sans en être un et inviterait à la
+confusion. Pour joindre cette vue au Dictionnaire annuel : Code_IPCAL égal ET
+Annee_revenus compris entre Validite_debut et Validite_fin. Pour les codes sans
+rupture, Validite_debut est purement descriptif et la clé se réduit de fait à
+Code_IPCAL seul.
 
 Rupture_semantique (booléen, sur CHAQUE génération d'un code scindé) est LE signal
 à regarder avant d'utiliser Code_IPCAL seul dans un mapping : True => ne jamais
@@ -167,11 +172,10 @@ def build(by_year):
             gen_alerts = [a for a in alerts if a['avant_annee'] >= gfirst and a['apres_annee'] <= glast]
             min_sim = min((a['similarite'] for a in gen_alerts), default=None)
             latest = per_year[glast]
-            cle_mapping = code if nb_gen == 1 else f'{code}-{gfirst}'
 
             variables.append({
+                # Clé : (Code_IPCAL, Validite_debut). Code_IPCAL n'est jamais altéré.
                 'Code_IPCAL': code,
-                'Cle_mapping': cle_mapping,
                 'Generation': gi,
                 'Nb_generations_total': nb_gen,
                 'Rupture_semantique': rupture_semantique,
@@ -199,13 +203,13 @@ def build(by_year):
                 if not a['suspect']:
                     continue
                 gi_avant, gi_apres = gen_of_year[a['avant_annee']], gen_of_year[a['apres_annee']]
-                # nb_gen > 1 ici (on est dans le bloc rupture_semantique) => toutes les
-                # générations de ce code, y compris la 1re, portent un Cle_mapping suffixé.
-                cle_avant = f'{code}-{generations[gi_avant - 1][0]}'
-                cle_apres = f'{code}-{generations[gi_apres - 1][0]}'
                 ruptures.append({
                     'Code_IPCAL': code, 'Nature_variable': per_year[years_present[-1]]['Nature_variable'],
-                    'Cle_mapping_avant': cle_avant, 'Cle_mapping_apres': cle_apres,
+                    # Les deux générations de part et d'autre de la coupure, désignées par
+                    # leur Validite_debut (2e composant de la clé composite), pas par une
+                    # chaîne concaténée.
+                    'Validite_debut_avant': generations[gi_avant - 1][0],
+                    'Validite_debut_apres': generations[gi_apres - 1][0],
                     **a,
                 })
     return all_years, variables, ruptures

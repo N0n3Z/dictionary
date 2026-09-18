@@ -103,14 +103,22 @@ difflib max = 0.559 après normalisation — voir seuil `SEUIL_SUSPECT` dans le 
   (une ligne par frontière entre générations, triée par similarité croissante =
   cas les plus suspects en premier), `Legende` (méthode et limites).
   `python3 06_write_historique_excel.py data/historique.json -o IPCAL_historique_variables.xlsx`
-- **Pas d'identifiant inventé** (décision utilisateur, 2026-09-16, à ne pas revenir
-  dessus sans consigne explicite) : `Code_IPCAL` reste la clé partout, y compris dans
-  le `Dictionnaire` annuel, où `(Code_IPCAL, Annee_revenus)` désambiguïse déjà
-  totalement. Seul un usage hors-année (mapping vers des agrégats nationaux) a besoin
-  de désambiguïser un code scindé — d'où `Cle_mapping` : `Code_IPCAL` nu si une seule
-  génération (~99% des codes, coût nul), sinon `"<Code_IPCAL>-<Validite_debut>"` (ex.
-  `A0270-2021`). Le flag `Rupture_semantique` (True sur toutes les générations d'un
-  code scindé) doit être vérifié avant tout mapping par `Code_IPCAL` seul.
+- **Architecture en deux niveaux + aucun identifiant synthétique** (décision
+  utilisateur, 2026-09-17, à ne pas revenir dessus sans consigne explicite) :
+  1. **table primaire** = le `Dictionnaire` annuel (03/04), une ligne par code
+     **par année**, où `(Code_IPCAL, Annee_revenus)` désambiguïse déjà totalement ;
+  2. **vue agrégée dérivée** = 05/06, une ligne par code sémantique (une seule pour
+     ~99% des codes, plusieurs générations pour les codes à rupture sémantique).
+
+  `Code_IPCAL` n'est **jamais altéré ni suffixé**, dans aucune table. Une génération
+  est désignée par une **clé composite en deux colonnes** — `(Code_IPCAL,
+  Validite_debut)` — et non par une chaîne concaténée du type `A0270-2021`, qui
+  ressemblerait à un code IPCAL sans en être un (une première version utilisait une
+  colonne `Cle_mapping` de ce type ; elle a été retirée pour cette raison). Jointure
+  vers les données annuelles : `Code_IPCAL` égal ET `Annee_revenus` entre
+  `Validite_debut` et `Validite_fin`. Le flag `Rupture_semantique` (True sur toutes
+  les générations d'un code scindé) doit être vérifié avant tout mapping par
+  `Code_IPCAL` seul.
 - Limite connue : ne détecte que la dérive accompagnée d'une coupure de disponibilité
   (conforme au signal empirique documenté) ; un changement de sens sans coupure
   (code présent en continu mais qui change de signification) n'est pas couvert —

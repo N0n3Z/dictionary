@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-Écrit le classeur "vue historique par variable sémantique" à partir du JSON produit
-par 05_build_historique.py : une ligne par génération de Code_IPCAL (une seule pour
-l'immense majorité des codes, plusieurs pour les codes ayant subi une rupture
-sémantique suspectée), avec un libellé par année en colonnes pour un scan visuel
-rapide, plus une feuille dédiée listant sans ambiguïté les codes scindés (celle à
-regarder avant de construire un mapping vers des agrégats nationaux), et le détail
-de chaque coupure sémantique.
+Écrit le classeur "vue historique par variable sémantique" -- la vue AGRÉGÉE dérivée
+du Dictionnaire annuel (table primaire : une ligne par code par année) -- à partir du
+JSON produit par 05_build_historique.py : une ligne par génération de Code_IPCAL (une
+seule pour l'immense majorité des codes, plusieurs pour les codes ayant subi une
+rupture sémantique suspectée), avec un libellé par année en colonnes pour un scan
+visuel rapide, plus une feuille dédiée listant sans ambiguïté les codes scindés
+(celle à regarder avant de construire un mapping vers des agrégats nationaux), et le
+détail de chaque coupure sémantique.
+
+Clé d'une génération = (Code_IPCAL, Validite_debut), en deux colonnes distinctes :
+Code_IPCAL n'est jamais altéré ni suffixé.
 
 Usage :
     python3 06_write_historique_excel.py data/historique.json -o IPCAL_historique_variables.xlsx
@@ -49,7 +53,7 @@ def main():
     # ---- Feuille 0 : Codes_avec_rupture (LA feuille à consulter avant tout mapping) ----
     cs = wb.active
     cs.title = 'Codes_avec_rupture'
-    cs_cols = ['Code_IPCAL', 'Nb_generations', 'Cle_mapping', 'Validite_debut', 'Validite_fin', 'Libelle']
+    cs_cols = ['Code_IPCAL', 'Nb_generations', 'Validite_debut', 'Validite_fin', 'Libelle']
     cs.append(['⚠ ' + c if c == 'Code_IPCAL' else c for c in cs_cols])
     for c in range(1, len(cs_cols) + 1):
         cell = cs.cell(row=1, column=c)
@@ -65,7 +69,7 @@ def main():
         gens = sorted(by_code_gens[code], key=lambda v: v['Generation'])
         for v in gens:
             libelle = v['Libelle_par_annee'].get(str(v['Validite_fin']), v['Libelle_par_annee'].get(v['Validite_fin'], ''))
-            row = [code, v['Nb_generations_total'], v['Cle_mapping'], v['Validite_debut'], v['Validite_fin'], libelle]
+            row = [code, v['Nb_generations_total'], v['Validite_debut'], v['Validite_fin'], libelle]
             cs.append([san(x) for x in row])
             for c in range(1, len(cs_cols) + 1):
                 cell = cs.cell(row=rr, column=c); cell.border = BORDER
@@ -75,7 +79,7 @@ def main():
             rr += 1
     cs.freeze_panes = 'A2'
     cs.auto_filter.ref = f"A1:{get_column_letter(len(cs_cols))}{rr - 1}"
-    CSW = {'Code_IPCAL': 12, 'Nb_generations': 14, 'Cle_mapping': 16, 'Validite_debut': 13, 'Validite_fin': 12, 'Libelle': 46}
+    CSW = {'Code_IPCAL': 12, 'Nb_generations': 14, 'Validite_debut': 13, 'Validite_fin': 12, 'Libelle': 46}
     for i, k in enumerate(cs_cols, start=1):
         cs.column_dimensions[get_column_letter(i)].width = CSW.get(k, 16)
     cs.row_dimensions[1].height = 30
@@ -84,8 +88,9 @@ def main():
 
     # ---- Feuille 1 : Historique (une ligne par génération) ----
     ws = wb.create_sheet('Historique')
-    fixed_cols = ['Code_IPCAL', 'Rupture_semantique', 'Cle_mapping', 'Generation', 'Nb_generations_total',
-                  'Prefixe', 'Conjoint', 'Nature_variable', 'Validite_debut', 'Validite_fin',
+    fixed_cols = ['Code_IPCAL', 'Validite_debut', 'Validite_fin', 'Rupture_semantique',
+                  'Generation', 'Nb_generations_total',
+                  'Prefixe', 'Conjoint', 'Nature_variable',
                   'Nb_annees_presentes', 'Continuite_pct', 'Rupture_disponibilite_mineure']
     year_cols = [f'Libelle_{y}' for y in years]
     cols = fixed_cols + year_cols
@@ -105,7 +110,7 @@ def main():
         ws.append([san(x) for x in row_vals])
         rr2 = i + 2
         gen_years = set(v['Annees_presentes'])
-        span = range(v['Validite_debut'], v['Validite_fin'] + 1)
+        span = range(v['Validite_debut'], v['Validite_fin'] + 1)  # plage de validité de CETTE génération
         for c, k in enumerate(cols, start=1):
             cell = ws.cell(row=rr2, column=c); cell.font = CELLF; cell.border = BORDER
             if k == 'Rupture_semantique':
@@ -119,7 +124,7 @@ def main():
                 cell.alignment = Alignment(horizontal='right')
             elif k.startswith('Libelle_'):
                 y = int(k.split('_')[1])
-                if y not in range(v['Validite_debut'], v['Validite_fin'] + 1):
+                if y not in span:
                     cell.fill = PatternFill('solid', fgColor='E7E6E6')  # hors génération (autre plage / pas encore/plus présent)
                 elif y not in gen_years:
                     cell.fill = gap_fill  # coupure mineure interne à la génération
@@ -127,9 +132,10 @@ def main():
                     cell.fill = alt
             elif i % 2 == 1 and k != 'Rupture_semantique':
                 cell.fill = alt
-    ws.freeze_panes = 'F2'
+    ws.freeze_panes = 'E2'  # garde visibles la clé (Code_IPCAL, Validite_debut), Validite_fin et le flag
     ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{len(variables_sorted) + 1}"
-    W = {'Nature_variable': 32, 'Rupture_semantique': 13, 'Cle_mapping': 15, 'Continuite_pct': 11,
+    W = {'Nature_variable': 32, 'Rupture_semantique': 13, 'Continuite_pct': 11,
+         'Validite_debut': 13, 'Validite_fin': 12,
          'Rupture_disponibilite_mineure': 14, 'Nb_generations_total': 12}
     for i, k in enumerate(cols, start=1):
         width = W.get(k, 30 if k.startswith('Libelle_') else 13)
@@ -138,9 +144,10 @@ def main():
 
     # ---- Feuille 2 : Ruptures_semantiques (une ligne par coupure = frontière entre générations) ----
     al = wb.create_sheet('Ruptures_semantiques')
-    al_cols = ['Code_IPCAL', 'Nature_variable', 'Cle_mapping_avant', 'Cle_mapping_apres', 'annees_absentes',
+    al_cols = ['Code_IPCAL', 'Nature_variable', 'Validite_debut_avant', 'Validite_debut_apres', 'annees_absentes',
                'avant_annee', 'avant_libelle', 'avant_chemin', 'apres_annee', 'apres_libelle', 'apres_chemin', 'similarite']
-    al_headers = ['Code_IPCAL', 'Nature_variable', 'Cle_mapping (avant)', 'Cle_mapping (après)', 'Années absentes',
+    al_headers = ['Code_IPCAL', 'Nature_variable', 'Génération avant : Validite_debut', 'Génération après : Validite_debut',
+                  'Années absentes',
                   'Avant : année', 'Avant : libellé', 'Avant : hiérarchie', 'Après : année', 'Après : libellé',
                   'Après : hiérarchie', 'Similarité']
     al.append(al_headers)
@@ -152,7 +159,7 @@ def main():
 
     ruptures_sorted = sorted(ruptures, key=lambda a: a['similarite'])  # cas les plus suspects d'abord
     for i, a in enumerate(ruptures_sorted):
-        row = [a['Code_IPCAL'], a['Nature_variable'], a['Cle_mapping_avant'], a['Cle_mapping_apres'],
+        row = [a['Code_IPCAL'], a['Nature_variable'], a['Validite_debut_avant'], a['Validite_debut_apres'],
                ','.join(str(y) for y in a['annees_absentes']), a['avant_annee'], a['avant_libelle'],
                a['avant_chemin'], a['apres_annee'], a['apres_libelle'], a['apres_chemin'], a['similarite']]
         al.append([san(x) for x in row])
@@ -165,7 +172,8 @@ def main():
         al.freeze_panes = 'E2'
         al.auto_filter.ref = f"A1:{get_column_letter(len(al_cols))}{len(ruptures_sorted) + 1}"
     ALW = {'avant_libelle': 36, 'apres_libelle': 36, 'avant_chemin': 50, 'apres_chemin': 50,
-           'Nature_variable': 32, 'annees_absentes': 16, 'Cle_mapping_avant': 15, 'Cle_mapping_apres': 15}
+           'Nature_variable': 32, 'annees_absentes': 16,
+           'Validite_debut_avant': 17, 'Validite_debut_apres': 17}
     for i, k in enumerate(al_cols, start=1):
         al.column_dimensions[get_column_letter(i)].width = ALW.get(k, 13)
     al.row_dimensions[1].height = 30
@@ -182,10 +190,11 @@ def main():
     r = 1
     lg.cell(row=r, column=1, value='Historique multi-année par variable sémantique — IPCAL').font = tf; r += 2
     lg.cell(row=r, column=1, value='PRINCIPE').font = sf; r += 1
-    put(r, 'Pas d\'identifiant inventé', "Code_IPCAL reste la clé partout, y compris dans le Dictionnaire annuel (Code_IPCAL + Annee_revenus désambiguïse déjà totalement). Ce classeur ne scinde en plusieurs lignes ('générations') que les codes ayant une rupture sémantique suspectée -- utile uniquement pour un usage hors-année, typiquement un mapping vers des agrégats nationaux."); r += 1
-    put(r, 'Rupture_semantique (⚠)', "True sur TOUTES les générations d'un Code_IPCAL scindé. Avant de mapper ce code vers un agrégat national, consulter l'onglet Codes_avec_rupture : autant de lignes que de générations, chacune avec sa plage de validité -- ne jamais mapper Code_IPCAL seul dans ce cas, toujours (Code_IPCAL, année) ou Cle_mapping."); r += 1
-    put(r, 'Cle_mapping', "Code_IPCAL seul si une seule génération (~99% des codes -- coût nul). Sinon \"<Code_IPCAL>-<Validite_debut>\" (ex. \"A0270-2021\"), lisible sans table de correspondance. Recommandé comme clé de la future table de mapping ; pour joindre aux données annuelles : Code_IPCAL égal ET année comprise entre Validite_debut et Validite_fin."); r += 1
-    put(r, 'Validite_debut / Validite_fin', "Première/dernière année connue de CETTE génération (pas du code entier si celui-ci est scindé)."); r += 1
+    put(r, 'Deux niveaux', "Table primaire = le Dictionnaire annuel : une ligne par code PAR ANNÉE, où (Code_IPCAL, Annee_revenus) désambiguïse déjà tout. Ce classeur est la vue agrégée dérivée : une ligne par code sémantique -- une seule pour les ~99% de codes dont le sens ne change pas, plusieurs ('générations') pour ceux ayant une rupture sémantique suspectée."); r += 1
+    put(r, 'Aucun identifiant synthétique', "Code_IPCAL n'est JAMAIS altéré ni suffixé, dans aucune table. Une génération est désignée par la clé composite en deux colonnes (Code_IPCAL, Validite_debut) -- volontairement pas une chaîne concaténée du type \"A0270-2021\", qui ressemblerait à un code IPCAL sans en être un."); r += 1
+    put(r, 'Rupture_semantique (⚠)', "True sur TOUTES les générations d'un Code_IPCAL scindé. Avant de mapper ce code vers un agrégat national, consulter l'onglet Codes_avec_rupture : autant de lignes que de générations, chacune avec sa plage de validité -- ne jamais mapper Code_IPCAL seul dans ce cas."); r += 1
+    put(r, 'Jointure vers les données annuelles', "Code_IPCAL égal ET Annee_revenus comprise entre Validite_debut et Validite_fin. Pour les codes sans rupture (Rupture_semantique = Non), Validite_debut est purement descriptif et la clé se réduit de fait à Code_IPCAL seul."); r += 1
+    put(r, 'Validite_debut / Validite_fin', "Première/dernière année connue de CETTE génération (pas du code entier si celui-ci est scindé). Validite_debut est le 2e composant de la clé."); r += 1
     put(r, 'Continuite_pct', "Part des années de [Validite_debut, Validite_fin] où le code est effectivement présent (100% = aucune coupure mineure)."); r += 1
     put(r, 'Rupture_disponibilite_mineure', "Coupure de disponibilité interne à cette génération, mais au libellé jugé stable (similarité >= 0.6) -- pas traitée comme un changement de sens, donc pas de scission."); r += 1
     put(r, 'Cellules grises (Historique)', "Année hors de la plage de validité de cette génération (appartient à une autre génération du même code)."); r += 1
